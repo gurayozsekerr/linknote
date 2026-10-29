@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linknote</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1c1f26; --muted: #6b7280;
+    --border: #e5e7eb; --accent: #c1272d; --danger: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1115; --card: #181b22; --text: #e6e8ec; --muted: #9aa3b2; --border: #2a2f3a; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; line-height: 1.5;
+  }
+  header { padding: 28px 20px 8px; max-width: 1000px; margin: 0 auto; }
+  header h1 { margin: 0; font-size: 1.6rem; }
+  header h1 span { color: var(--accent); }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  main {
+    max-width: 1000px; margin: 0 auto; padding: 16px 20px 48px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 20px;
+  }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  section {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px;
+  }
+  h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  input, textarea, select {
+    width: 100%; padding: 9px 10px; font: inherit; color: var(--text);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; padding: 8px 12px;
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:hover { opacity: .85; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  li { border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+  .title { font-weight: 600; word-break: break-word; }
+  .muted { color: var(--muted); font-size: .88rem; word-break: break-all; }
+  .actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .badge {
+    display: inline-block; font-size: .78rem; padding: 1px 8px; margin-top: 6px;
+    border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .empty { color: var(--muted); text-align: center; padding: 12px; }
+  a { color: var(--accent); }
+  #msg {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--danger); color: #fff; padding: 10px 16px; border-radius: 8px;
+    display: none; max-width: 90%;
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Link<span>note</span></h1>
+  <p>Linklerini kısalt, notlarına bağla.</p>
+</header>
+
+<main>
+  <section>
+    <h2>Linkler</h2>
+    <form id="link-form">
+      <input id="link-url" type="url" placeholder="https://ornek.com/uzun-bir-adres" required>
+      <select id="link-note"></select>
+      <button class="primary" type="submit">Kısalt</button>
+    </form>
+    <ul id="links"></ul>
+  </section>
+
+  <section>
+    <h2>Notlar</h2>
+    <form id="note-form">
+      <input id="note-title" placeholder="Başlık" maxlength="200" required>
+      <textarea id="note-body" placeholder="Not içeriği (isteğe bağlı)"></textarea>
+      <button class="primary" type="submit">Not ekle</button>
+    </form>
+    <ul id="notes"></ul>
+  </section>
+</main>
+
+<div id="msg"></div>
+
+<script>
+  // ---------- Yardımcılar ----------
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      headers: { "Content-Type": "application/json" },
+      ...options
+    });
+    if (res.status === 204) return null;
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.errors ? data.errors.join(", ") : data.error || "Bir hata oluştu");
+    }
+    return data;
+  }
+
+  // Güvenli element oluşturucu: metinler textNode olarak eklenir, HTML olarak yorumlanmaz
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) {
+      if (key === "class") node.className = value;
+      else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
+      else node.setAttribute(key, value);
+    }
+    children.flat().forEach(child => node.append(child));
+    return node;
+  }
+
+  let msgTimer;
+  function showError(message) {
+    const box = document.getElementById("msg");
+    box.textContent = message;
+    box.style.display = "block";
+    clearTimeout(msgTimer);
+    msgTimer = setTimeout(() => (box.style.display = "none"), 4000);
+  }
+
+  async function run(action) {
+    try {
+      await action();
+    } catch (err) {
+      showError(err.message);
+    }
+  }
+
+  // ---------- Çizim ----------
+  function renderLinks(links) {
+    const list = document.getElementById("links");
+    list.replaceChildren();
+    if (links.length === 0) {
+      list.append(el("li", { class: "empty" }, "Henüz link yok."));
+      return;
+    }
+    links.forEach(link => {
+      list.append(el("li", {},
+        el("div", { class: "row" },
+          el("div", {},
+            el("a", { href: link.short_url, target: "_blank", rel: "noopener" }, link.short_url),
+            el("div", { class: "muted" }, link.url),
+            el("span", { class: "badge" }, `${link.clicks} tıklama`)
+          ),
+          el("div", { class: "actions" },
+            el("button", {
+              onclick: () => run(async () => {
+                await navigator.clipboard.writeText(link.short_url);
+              })
+            }, "Kopyala"),
+            el("button", {
+              class: "danger",
+              onclick: () => run(async () => {
+                await api(`/links/${link.code}`, { method: "DELETE" });
+                await load();
+              })
+            }, "Sil")
+          )
+        )
+      ));
+    });
+  }
+
+  function renderNotes(notes) {
+    const list = document.getElementById("notes");
+    list.replaceChildren();
+    if (notes.length === 0) {
+      list.append(el("li", { class: "empty" }, "Henüz not yok."));
+      return;
+    }
+    notes.forEach(note => {
+      list.append(el("li", {},
+        el("div", { class: "row" },
+          el("div", {},
+            el("div", { class: "title" }, note.title),
+            note.body ? el("div", { class: "muted" }, note.body) : "",
+            note.links.map(link =>
+              el("div", {},
+                el("span", { class: "badge" }, `/${link.code} · ${link.clicks} tıklama`)
+              )
+            )
+          ),
+          el("div", { class: "actions" },
+            el("button", {
+              class: "danger",
+              onclick: () => run(async () => {
+                await api(`/notes/${note.id}`, { method: "DELETE" });
+                await load();
+              })
+            }, "Sil")
+          )
+        )
+      ));
+    });
+  }
+
+  function renderNoteSelect(notes) {
+    const select = document.getElementById("link-note");
+    const current = select.value;
+    select.replaceChildren(el("option", { value: "" }, "Nota bağlama (isteğe bağlı)"));
+    notes.forEach(note => select.append(el("option", { value: note.id }, note.title)));
+    select.value = notes.some(n => String(n.id) === current) ? current : "";
+  }
+
+  async function load() {
+    const [notes, links] = await Promise.all([api("/notes"), api("/links")]);
+    renderNotes(notes);
+    renderLinks(links);
+    renderNoteSelect(notes);
+  }
+
+  // ---------- Formlar ----------
+  document.getElementById("link-form").addEventListener("submit", event => {
+    event.preventDefault();
+    run(async () => {
+      const payload = { url: document.getElementById("link-url").value };
+      const noteId = document.getElementById("link-note").value;
+      if (noteId) payload.note_id = Number(noteId);
+      await api("/links", { method: "POST", body: JSON.stringify(payload) });
+      event.target.reset();
+      await load();
+    });
+  });
+
+  document.getElementById("note-form").addEventListener("submit", event => {
+    event.preventDefault();
+    run(async () => {
+      const payload = {
+        title: document.getElementById("note-title").value,
+        body: document.getElementById("note-body").value
+      };
+      await api("/notes", { method: "POST", body: JSON.stringify(payload) });
+      event.target.reset();
+      await load();
+    });
+  });
+
+  run(load);
+</script>
+</body>
+</html>

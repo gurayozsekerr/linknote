@@ -1,0 +1,5 @@
+db/*.sqlite3
+.bundle/
+vendor/bundle/
+.DS_Store
+Thumbs.db
