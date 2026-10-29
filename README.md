@@ -1,6 +1,6 @@
 # Linknote
 
-[![Tests](https://github.com/gurayozsekerr/linknote/actions/workflows/ci.yml/badge.svg)](https://github.com/gurayozsekerr/linknote/actions/workflows/ci.yml)
+[![Tests](https://github.com/gurayozsekerr/linknote/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/gurayozsekerr/linknote/actions/workflows/ci.yml)
 
 Ruby ve Sinatra ile yazılmış, URL kısaltıcı ve not alma özelliklerini birleştiren küçük bir REST API. Basit bir web arayüzüyle birlikte gelir.
 
